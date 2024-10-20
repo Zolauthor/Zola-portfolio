@@ -1,0 +1,828 @@
+---
+title: "Sales prediction coding"
+output: word_document
+date: "2024-05-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Task 1. Data cleaning
+
+```{r, echo=TRUE, results='hide'}
+#Installing the necessary packages:
+library(tidyverse)
+library(zoo)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(tidyr)
+library(hms)
+library(scales)
+library(caret)
+library(ModelMetrics)
+library(rpart)
+```
+
+```{r, echo=TRUE, results='hide'}
+#Setting working directory:
+
+setwd("C:/Users/Laptop'/OneDrive/Desktop/SalesDibs")
+
+#Reading all datasets:
+sales_01 <- read_csv("01_Sales_Jan.csv")
+sales_02 <- read_csv("02_Sales_Feb.csv")
+sales_03 <- read_csv("03_Sales_Mar.csv")
+sales_04 <- read_csv("04_Sales_Apr.csv")
+sales_05 <- read_csv("05_Sales_May.csv")
+sales_06 <- read_csv("06_Sales_Jun.csv")
+sales_07 <- read_csv("07_Sales_Jul.csv")
+sales_08 <- read_csv("08_Sales_Aug.csv")
+sales_09 <- read_csv("09_Sales_Sep.csv")
+sales_10 <- read_csv("10_Sales_Oct.csv")
+sales_11 <- read_csv("11_Sales_Nov.csv")
+sales_12 <- read_csv("12_Sales_Dec.csv")
+```
+
+```{r, echo=TRUE, results='hide'}
+#Combining datasets into one dataframe:
+dataframe <- bind_rows(
+  sales_01,
+  sales_02,
+  sales_03,
+  sales_04,
+  sales_05,
+  sales_06,
+  sales_07,
+  sales_08,
+  sales_09,
+  sales_10,
+  sales_11,
+  sales_12)
+
+summary(dataframe)
+```
+```{r, echo=TRUE, results='hide'}
+
+# Checking unnecessary rows with duplicate input with column name:
+duplicates <- apply(dataframe, 1, function(row) all(row == names(dataframe)))
+
+# Printing rows that are duplicates to check them:
+if (any(duplicates)) {
+    print(dataframe[duplicates, ])
+} else {
+    print("No duplicate rows found.")
+}
+```
+```{r, echo=TRUE, results='hide'}
+#Cleaning duplicated labels as they do not contain actual data: 
+dataframe <- dataframe[!duplicates, ]
+```
+
+```{r, echo=TRUE, results='hide'}
+#Checking for missing values:
+sum(is.na(dataframe))
+```
+
+```{r, echo=TRUE, results='hide'}
+#Cleaning missing values:
+clean_df_na<-na.omit(dataframe)
+
+#Rechecking missing value:
+sum(is.na(clean_df_na))
+```
+
+```{r, echo=TRUE, results='hide'}
+#For further convenience and clarity changing the names of columns all in lowercase and snake case:
+clean_df_01 = clean_df_na %>% 
+   rename(
+     order_id = `Order ID`,
+     product = Product,
+     quantity_ordered = `Quantity Ordered`,
+     price = `Price Each`,
+     order_date = `Order Date`,
+     purchase_address = `Purchase Address`
+     )
+
+str(clean_df_01)
+```
+### "order_id" column observation
+
+```{r, echo=TRUE, results='hide'}
+# Checking for any duplicates in the order_id column:
+id_duplicated <- any(duplicated(clean_df_01$order_id))
+
+# Printing presence of duplicates:
+if (id_duplicated) {
+    print("Duplicates found.")
+} else {
+    print("No duplicates found.")
+}
+```
+
+```{r, echo=TRUE, results='hide'}
+#Counting duplicated order IDs:
+sum(duplicated(clean_df_01$order_id))
+
+#Looking for particular order id to check product similarity:
+duplicated_id <- clean_df_01$order_id[duplicated(clean_df_01$order_id)]
+head(duplicated_id)
+
+# Filtering the rows with certain duplicated order id:
+filtered_order <- clean_df_01[clean_df_01$order_id == "141275", ]
+print(filtered_order)
+```
+
+### "product" column observation
+
+```{r, echo=TRUE, results='hide'}
+#Checking the unique values in product column:
+unique(clean_df_01$product) 
+```
+
+```{r, echo=TRUE, results='hide'}
+#Correcting misspells and errors in values of product column:
+clean_df_02 = clean_df_01 %>%
+  mutate(product = replace(product,product == "IPhone","iPhone")) %>%
+  mutate(product = replace(product,product == "USBC Charging Cable","USB-C Charging Cable")) %>%
+  mutate(product = replace(product,product == "LightCharging Cable","Lightning Charging Cable")) %>%
+  mutate(product = replace(product,product == "AAA Batteries (4pack)","AAA Batteries (4-pack)")) %>%
+  mutate(product = replace(product,product == "Goo0gle Phone","Google Phone")) %>%
+  mutate(product = replace(product,product == "Wired Headphoness","Wired Headphones")) %>%
+  mutate(product = replace(product,product == "##system error##", NA)) %>%
+  mutate(product = replace(product,product == "Fault error", NA))
+
+unique(clean_df_02$product) 
+```
+
+```{r, echo=TRUE, results='hide'}
+#Deleting new NAs:
+
+sum(is.na(clean_df_02))
+clean_df_02<-na.omit(clean_df_02)
+sum(is.na(clean_df_02))
+```
+### "quantity_ordered" column observation
+
+```{r, echo=TRUE, results='hide'}
+#Changing values in column quantity_ordered into a numerical value:
+clean_df_02$quantity_ordered <- as.numeric(clean_df_02$quantity_ordered)
+
+summary(clean_df_02)
+```
+
+```{r, echo=TRUE, results='hide'}
+unique(clean_df_02$quantity_ordered)
+
+# Removing the rows where "quantity_ordered" is equal to 0
+clean_df_03 <- clean_df_02[clean_df_02$quantity_ordered != 0, ]
+
+unique(clean_df_03$quantity_ordered)
+```
+### "price" column observation
+
+```{r, echo=TRUE, results='hide'}
+#Converting type into numerical value:
+clean_df_03$price <- as.numeric(clean_df_03$price)
+
+#Checking unique values:
+unique(clean_df_03$price)
+
+#After checking unique value discovered NA. Finding rows with NA:
+na_row = !complete.cases(clean_df_03)
+
+# Print the rows with NA values
+print(clean_df_03[na_row, ])
+```
+
+```{r, echo=TRUE, results='hide'}
+#Imputing NAs with the price of same product:
+clean_df_04 <- clean_df_03 %>%
+  group_by(product) %>%
+  mutate(price = ifelse(is.na(price), mean(price, na.rm = TRUE), price))
+
+id_rows <- clean_df_04[clean_df_04$order_id %in% c(141255, 176623), ]
+print(id_rows)
+
+unique(clean_df_04$price)
+```
+
+### "order_date" column observation
+
+```{r, echo=TRUE, results='hide'}
+#order_date contains both data and time. Therefore dividing this into 2 separate columns "date" and "time":
+
+clean_df_05 <- clean_df_04 %>%
+  mutate(
+    order_date = mdy_hm(order_date), #Dividing date and time
+    date = as.Date(order_date), # Extracting "date" in date to filter and analyze data by year, month and day.
+    time = as.hms(format(order_date, format = "%H:%M:%S")) #Extracting "time" in time format 
+  ) %>%
+  select(-order_date) #Deleting original column
+
+head(clean_df_05)
+```
+
+```{r, echo=TRUE, results='hide'}
+#Checking unique year for any error:
+unique_years <- unique(as.numeric(format(clean_df_05$date, "%Y")))
+print(unique_years)
+```
+
+```{r, echo=TRUE, results='hide'}
+# Extracting years and count entries for 2001
+count_2001 <- sum(format(clean_df_05$date, "%Y") == "2001")
+print(count_2001)
+```
+
+```{r}
+# Extracting years and count entries for 2028
+count_2028 <- sum(format(clean_df_05$date, "%Y") == "2028")
+print(count_2028)
+```
+
+```{r}
+#2028 and 2021, each have only 1 entries, thus removing from dataset: 
+clean_df_05 <- clean_df_05 %>%
+  filter(!format(date, "%Y") %in% c("2028", "2001"))
+print(unique(as.numeric(format(clean_df_05$date, "%Y"))))
+```
+
+### "purchase_address" column observation
+
+
+```{r, echo=TRUE, results='hide'}
+
+#Splitting the postcode:
+address <- strsplit(clean_df_05$purchase_address , " ")
+clean_df_05$postcode <- sapply(address, function(x) tail(x, n = 1))
+
+#Splitting the purchase address into 3 columns
+clean_df_05$purchase_address <- sapply(address, function(x) paste(head(x, -1), collapse = " "))
+
+clean_df_06 <- separate(clean_df_05, purchase_address, into = c("address", "city", "state"), sep = ", ")
+head(clean_df_06)
+```
+
+```{r, echo=TRUE, results='hide'}
+#Checking unique values of "city" column:
+unique(clean_df_06$city)
+
+#Correcting misspelling: 
+clean_final <- clean_df_06 %>%
+  mutate(city = replace(city, city == "SanFrancisco", "San Francisco")) %>%
+  mutate(city = replace(city, city == "Las Angeles", "Los Angeles")) 
+
+unique(clean_final$city)
+```
+
+```{r, echo=TRUE, results='hide'}
+#Checking unique values of "city" column:
+unique(clean_final$state)
+summary(clean_final)
+```
+
+## Task 2
+
+```{r, echo=TRUE, results='hide'}
+#Date column  contains year, month and date. Therefore dividing this into 3 separate columns "day" "month", and "year":
+clean_final <- clean_final %>%
+  mutate(
+    year = year(date),       
+    month = month(date),     # Extracting the year, month and day
+    day = day(date)         
+ 
+        )%>%  select(-date)
+head(clean_final)
+
+write.csv(clean_final, "clean_final.csv", row.names = FALSE)
+
+```
+
+
+### A. What is the worst year of sales and how much sales was earned?
+
+```{r, echo=TRUE, results='hide'}
+#Create a new column "sales" in the data set. (multiply the quantity of items sold by their price)
+clean_final <- clean_final %>%
+  mutate(sales = quantity_ordered * price)
+
+```
+
+
+
+```{r, echo=TRUE, results='hide'}
+# Calculating total sales for each year
+worst_year <- aggregate(clean_final$price, by=list(clean_final$year), FUN=sum)
+#finding the row with the minimum sales
+worst_year <- worst_year[which.min(worst_year$x), ]
+# Rename the columns
+colnames(worst_year) <- c("year", "sales")
+worst_year
+
+
+```
+The worst year for sales is 2021 with a total of 4365.56. 
+
+### B. How much was earned in the best Year of sales?
+
+
+```{r, echo=TRUE, results='hide'}
+## Filtering data for the year 2019 (Best year of sales)
+data_2019 <- clean_final %>% filter(year == 2019)
+#Calculating total sales for 2019
+best_year <- aggregate(data_2019$price, by=list(data_2019$year), FUN=sum)
+# Finding the row with the maximum sales for years
+best_year <- best_year[which.max(best_year$x), ]
+# Rename the columns
+colnames(best_year) <- c("year", "sales")
+best_year
+
+
+```
+The best year for sales is 2019. 34280627	was earned.
+
+### C. In the best year of sales which was the best month for sales?
+
+```{r}
+
+# Calculating total sales for each year and month for 2019
+best_month <- aggregate(data_2019$sales, by=list(data_2019$year, data_2019$month), FUN=sum)
+# Finding the row with the maximum sales for month
+best_month <- best_month[which.max(best_month$x), ]
+
+# Rename the columns
+colnames(best_month) <- c("Year", "Month", "Sales")
+
+best_month
+
+
+```
+December is the best month of 2019 for sales.
+
+### D. In the best year of sales how much was earned in the best month?
+ 
+```{r}
+
+# Filtering data for the year 2019
+data_2019 <- clean_final %>% filter(year == 2019)
+# Calculating total sales for each year and month for 2019
+best_month <- aggregate(data_2019$sales, by=list(data_2019$year, data_2019$month), FUN=sum)
+# Finding the row with the maximum sales for month
+best_month <- best_month[which.max(best_month$x), ]
+
+# Rename the columns
+colnames(best_month) <- c("Year", "Month", "Sales")
+
+best_month
+
+```
+In December 2019, $4613443 was earned, marking the best year of month sales.
+
+
+### E. Which City had the most sales in the best year of sales?
+      
+
+```{r}
+# total sales of 2019 for each city.
+city_sales <- aggregate(data_2019$sales, by=list(data_2019$city), FUN=sum)
+# rename column
+colnames(city_sales) <- c("city", "sales")
+
+# Finding the city with the highest sales in 2019. 
+most_selling_city <- city_sales[which.max(city_sales$sales), ]
+
+
+most_selling_city
+
+```
+San Francisco city had the highest sales of 8259719 in 2019. 
+
+
+### F. To maximise the likelihood of customers buying a product, what time should Dibs business be displaying advertisements in the best year of sales?
+  
+
+```{r}
+# Sum up 2019 sales data grouped by time
+hourly_sales <- aggregate(data_2019$sales, by=list(data_2019$time), FUN=sum)
+# Identify the time period with the highest sales
+best_advertisement_time <- hourly_sales[which.max(hourly_sales$x), 1]
+
+best_advertisement_time
+```
+In 2019, the highest sale was made at 19:01:00. 
+Dibs business should displaying advertisements around 19:00 as customers tend to watch advertisements before making a purchase.
+
+### G. Which products are most often sold together?
+
+
+```{r}
+# Finding orders with more than one product
+multiple_product_orders <- clean_final %>%
+  group_by(order_id) %>%
+  filter(n() > 1) %>%
+  ungroup()
+
+# Creating product pairs within each order
+product_pairs <- multiple_product_orders %>%
+  group_by(order_id) %>%
+  summarize(ProductPairs = str_c(sort(product), collapse = ", ")) %>%
+  ungroup()
+
+# Counting the frequency of product pairs
+product_pair_counts <- product_pairs %>%
+  count(ProductPairs, sort = TRUE)
+
+# Get the most frequently sold product pairs
+top_product_pairs <- head(product_pair_counts, n = 5)
+
+# Set column names to "ProductPairs" and "Times"
+colnames(top_product_pairs) <- c("ProductPairs", "Times")
+
+top_product_pairs
+
+```
+iPhone and Lightning Charging Cable are most often (891) times sold together.
+
+### H. Overall which product sold the most and why do you think it has sold the most?
+
+
+```{r}
+#Calculating the total quantity ordered for each product by summing up the values within each group
+best_selling_product <- clean_final %>%
+  group_by(product) %>%
+  summarize(Total_Quantity = sum(quantity_ordered))
+
+# Sortin products by total quantity sold
+best_selling_product <- best_selling_product[order(best_selling_product$Total_Quantity, decreasing = TRUE), ]
+best_selling_product <- best_selling_product[1, ]
+best_selling_product
+```
+
+AAA Batteries (4-pack) are sold the most (31020) the time period.
+Many common household devices, such as TV remotes, electronic toys,  small appliances, and everyday gadgets require AAA batteries. 
+
+
+### I. What is the least sold product in the best year of sales?
+
+
+```{r}
+
+# Group by product and summarize total quantity ordered in 2019
+least_selling_product <- data_2019 %>%
+  group_by(product) %>%
+  summarize(Total_Quantity = sum(quantity_ordered))
+
+# Sorting products by total quantity sold in ascending order
+least_selling_product <- least_selling_product[order(least_selling_product$Total_Quantity), ]
+
+# Select the least sold product
+least_selling_product <- least_selling_product[1, ]
+
+print(least_selling_product)
+
+```
+In 2019, 646 LG Dryers were sold, making it the least sold product in the best year for sales.
+
+## Task 3
+
+### Calculate Total Sales and Identify the Best Year of Sales
+
+```{r}
+# Calculate total sales
+clean_final <- clean_final %>%
+  mutate(total_sales = quantity_ordered * price)
+
+# Sum sales per year
+sales_per_year <- clean_final %>%
+  group_by(year) %>%
+  summarise(total_sales = sum(total_sales))
+
+# Find the best year of sales
+best_year <- sales_per_year %>%
+  filter(total_sales == max(total_sales)) %>%
+  pull(year)
+
+# Filter data for the best year
+data_best_year <- clean_final %>% filter(year == best_year)
+
+```
+
+### A. Monthly sales trend vs monthly average sales
+
+```{r}
+
+# Summarize monthly sales
+monthly_sales <- data_best_year %>%
+  group_by(month) %>%
+  summarise(total_sales = sum(total_sales))
+
+# Calculate monthly average sales
+monthly_avg_sales <- mean(monthly_sales$total_sales)
+
+# Add December total sales annotation rounded to 2 decimal places
+dec_total_sales <- monthly_sales %>% filter(month == 12) %>% pull(total_sales)
+dec_total_sales_millions <- round(dec_total_sales / 1e6, 2)
+
+# Plot monthly sales trend vs monthly average sales
+ggplot(monthly_sales, aes(x = factor(month, levels = 1:12, labels = month.abb), y = total_sales)) +
+  geom_line(group = 1, color = 'blue', size = 1.2) +
+  geom_point(color = 'blue', size = 3) +
+  geom_hline(yintercept = monthly_avg_sales, linetype = 'dashed', color = 'red') +
+  labs(title = 'Monthly Sales Trend vs Monthly Average Sales',
+       x = 'Month', y = 'Total Sales (in Millions)') +
+  scale_y_continuous(labels = scales::dollar_format(scale = 1e-6, suffix = "M")) +
+  theme_minimal() +
+  annotate("text", x = 1, y = monthly_avg_sales + 0.5e6, label = paste("Monthly Average Sales =", scales::dollar_format(scale = 1e-6, suffix = "M")(monthly_avg_sales)), color = "red", vjust = -0.5) +
+  annotate("text", x = 12, y = dec_total_sales + 0.5e6, label = paste("$", dec_total_sales_millions, "M"), color = "blue", vjust = -0.5) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+```
+The sales for 2019 were highest in April, October, and December, suggesting these months had higher consumer activity, likely due to successful promotions or seasonal demand. The average monthly sales were $2.8 million while the highest monthly sales were $ 4.61 million for Dec 2019. On the other hand, sales were lowest in January, February and September, indicating periods of reduced consumer spending or a need for improved marketing strategies during these months.
+
+
+### B. Sales by state
+
+```{r}
+
+# Summarize sales by state
+sales_by_state <- data_best_year %>%
+  group_by(state) %>%
+  summarise(total_sales = sum(total_sales))
+
+# Set the y-axis limit
+y_axis_limit <- max(sales_by_state$total_sales) * 1.1  # Adding a 10% buffer for better visualization
+
+# Plot sales by state with different colors and total sales at the top
+ggplot(sales_by_state, aes(x = reorder(state, total_sales), y = total_sales, fill = state)) +
+  geom_bar(stat = 'identity') +
+  geom_text(aes(label = scales::dollar_format(scale = 1e-6, suffix = "M")(total_sales)), 
+            vjust = -0.5, color = "black", size = 3.5) +
+  labs(title = 'Sales by State', x = 'State', y = 'Total Sales (in Millions)') +
+  scale_y_continuous(labels = scales::dollar_format(scale = 1e-6, suffix = "M"), limits = c(0, y_axis_limit)) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    legend.position = "none"  # Hide the legend since colors are only for distinction
+  )
+
+
+
+```
+
+The "Sales by State" graph provides a view of Dibs' sales performance across various states for 2019. California stands out with the highest sales with $ 13.71 million, indicating a strong customer base and high demand. New York, Texas, and Massachusetts also show substantial sales, contributing significantly to overall revenue. Conversely, states like Maine and Oregon have relatively lower sales, highlighting potential areas for growth or the need for improved marketing strategies.
+
+### C. Top 10 products sold in the best year of sales 
+
+
+```{r}
+
+# Summarize product sales
+product_sales <- data_best_year %>%
+  group_by(product) %>%
+  summarise(total_sales = sum(total_sales)) %>%
+  arrange(desc(total_sales)) %>%
+  head(10)
+
+# Plot top 10 products sold with different colors
+ggplot(product_sales, aes(x = total_sales, y = reorder(product, total_sales), fill = product)) +
+  geom_bar(stat = 'identity') +
+  geom_text(aes(label = scales::dollar_format(scale = 1e-6, suffix = "M")(total_sales)), 
+            hjust = 1.1, color = "black", size = 3.5) +
+  labs(title = 'Top 10 Products Sold in the Best Year of Sales', x = 'Total Sales (in Millions)', y = 'Product') +
+  theme_minimal() +
+  scale_x_continuous(labels = scales::dollar_format(scale = 1e-6, suffix = "M")) + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    legend.position = "none"  # Hide the legend since colors are only for distinction
+  )
+
+```
+
+The "Top 10 Products Sold" graph reveals the highest-selling products, which are key revenue contributors. The Macbook Pro Laptop leads as the top-selling product, followed by the iPhone and ThinkPad Laptop, all contributing significantly to sales. Other high-performing products include the Google Phone, 27in 4K Gaming Monitor, and 34in Ultrawide Monitor.
+
+
+### D. Monthly order trend vs monthly average order 
+
+```{r}
+# Summarize monthly orders
+monthly_orders <- data_best_year %>%
+  group_by(month) %>%
+  summarise(total_orders = n())
+
+# Calculate monthly average orders
+monthly_avg_orders <- mean(monthly_orders$total_orders)
+
+# Plot monthly order trend vs monthly average order
+ggplot(monthly_orders, aes(x = factor(month, levels = 1:12, labels = month.abb), y = total_orders)) +
+  geom_line(group = 1, color = 'blue', size = 1.2) +
+  geom_point(color = 'blue', size = 3) +
+  geom_hline(yintercept = monthly_avg_orders, linetype = 'dashed', color = 'red') +
+  labs(title = 'Monthly Order Trend vs Monthly Average Order',
+       x = 'Month', y = 'Total Orders') +
+  theme_minimal() +
+  annotate("text", x = 2, y = monthly_avg_orders + 1000, label = paste("Average Orders =", round(monthly_avg_orders)), color = "red", vjust = -0.5) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+
+
+```
+
+The average monthly orders, represented by the red dashed line, stand at 15,493. The highest monthly orders were recorded in December, with a total of over 25,000 orders. This trend mirrors the “Monthly sales graph” indicating consistent consumer behaviour in order volume and sales value.
+
+
+### E. Daily order trend vs daily average
+```{r}
+# Summarize daily orders
+daily_orders <- data_best_year %>%
+  group_by(day) %>%
+  summarise(total_orders = n())
+
+# Calculate daily average orders
+daily_avg_orders <- mean(daily_orders$total_orders)
+
+# Plot daily order trend vs daily average order
+ggplot(daily_orders, aes(x = factor(day), y = total_orders)) +
+  geom_line(group = 1, color = 'blue') +
+  geom_point(color = 'blue') +
+  geom_hline(yintercept = daily_avg_orders, linetype = 'dashed', color = 'red') +
+  labs(title = 'Daily Order Trend vs Daily Average Order',
+       x = 'Day', y = 'Total Orders') +
+  theme_minimal()
+
+```
+
+The graph shows consistent daily orders throughout the month, generally around the average line. Minor peaks occur around the 4th and 18th, while a significant drop is noted on the last day of the month.
+
+
+### F. Hourly order trend vs hourly average order 
+
+```{r}
+# Extract hour from time column
+data_best_year$hour <- as.numeric(substr(data_best_year$time, 1, 2))
+
+# Summarize hourly orders
+hourly_orders <- data_best_year %>%
+  group_by(hour) %>%
+  summarise(total_orders = n())
+
+# Calculate hourly average orders
+hourly_avg_orders <- mean(hourly_orders$total_orders)
+
+# Plot hourly order trend vs hourly average order
+ggplot(hourly_orders, aes(x = factor(hour), y = total_orders)) +
+  geom_line(group = 1, color = 'blue') +
+  geom_point(color = 'blue') +
+  geom_hline(yintercept = hourly_avg_orders, linetype = 'dashed', color = 'red') +
+  labs(title = 'Hourly Order Trend vs Hourly Average Order',
+       x = 'Hour', y = 'Total Orders') +
+  theme_minimal() +
+  annotate("text", x = 5, y = hourly_avg_orders + 500, label = paste("Average Orders =", round(hourly_avg_orders)), color = "red", vjust = -0.5) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+
+
+```
+
+The graph shows clear trends in hourly order activity. Early morning hours (midnight to 6 AM) exhibit the lowest order numbers, reflecting typical consumer behaviour. Orders increase around 8 AM, peaking between 10 AM and 3 PM, indicating the most active shopping hours. Another peak occurs between 5 PM and 9 PM, followed by a sharp drop after 9 PM.
+
+## Task 4
+Build a predictive model for Dibs organisation to be able to predict future sales. In this model you are required to.
+
+As we are predicting sales for Dibs, we will use the inserted sales column from task 2 which is quantity ordered x price as our prediction variable, this gives us the actual sales value for each order, allowing us to better predict actual sales values. 
+
+### a. Spit your data into training/test
+
+```{r}
+# Removing columns which would not contribute in predicting sales
+cdf_1 = clean_final %>%
+  select(-order_id,-address, -time, -postcode, -product, -city, -state, -total_sales, -day)
+```
+
+```{r}
+# Now we can split our training and testing data using the caret library, we will use 90/10 training/testing split
+set.seed(123) # setting a seed for reproducibility
+trainIndex <- createDataPartition(cdf_1$sales,p=0.9, list=FALSE) 
+train <- cdf_1[trainIndex,] # takes the sliced 90% of data
+test <- cdf_1[-trainIndex,] # the '-' takes what is remaining from the slice
+```
+
+### b. Choose at least two methods that you will use for prediction
+For this analysis, we will be using linear regression and decision trees.
+
+Linear Regression will provide us with a solid foundation for predictioning sales data such as this, although being a basic model, it is usually a good place to start and then build up to more advanced models. By using decision tree as our second model, this allows us to build upon our linear regression's accuracy with a more complex and robust prediction model which can capture more complex relationships, allowing for a better comparison between the two models and can tell which model would be more accurate in predicting sales.
+
+### c. Apply your data to the models and recommend the most appropriate model
+
+Linear Regression Model:
+```{r}
+# Fit our linear regression model
+model_lm <- lm(sales ~ product + quantity_ordered + price + year + month, data=train)
+```
+
+```{r}
+# Generating our prediction data and creating a DF for the results
+predict_lm <- predict(model_lm, test)
+predict_lm <- data.frame(sales_pred = predict_lm, sales = test$sales, 
+                         product = test$product, quantity_ordered = test$quantity_ordered,
+                         price = test$price, year = test$year,
+                         month = test$month) # # Creating a new dataframe and creating the columns by selecting them from our test data to store our prediction values and make comparisons 
+```
+
+```{r}
+# Now we can test the accuracy of our linear regression model using RMSE with the ModelMetrics Library
+rmse(test$sales, predict_lm$sales_pred)
+```
+
+Decision Tree:
+```{r}
+# Fit our decision tree model
+model_rpart <- rpart(sales ~ product + quantity_ordered + price + year + month, data=train)
+```
+
+```{r}
+# Generating our prediction data and creating a DF for the results
+predict_rpart <- predict(model_rpart, test)
+predict_rpart <- data.frame(sales_pred = predict_rpart, sales = test$sales, 
+                         product = test$product, quantity_ordered = test$quantity_ordered,
+                         price = test$price, year = test$year,
+                         month = test$month) # # Creating a new dataframe and creating the columns by selecting them from our test data to store our prediction values and make comparisons 
+```
+
+```{r}
+# Now we can test the accuracy of our decision tree model using RMSE
+rmse(test$sales, predict_rpart$sales_pred)
+```
+
+At initial findings, it can be recommended to use the linear regression model, the results, however, will be further investigated visually and explained in the next part with justification.
+
+### d. Provide results and visualisation of your two models
+
+```{r}
+# Firstly, we can compare our two models visually
+par(mfrow = c(1, 2)); # Makes it so each graph is in its own slot 
+plot(predict_lm$sales_pred - predict_lm$sales,
+     main = "Linear Regression Residuals",
+     xlab = "Observation",
+     ylab = "Prediction Error")
+plot(predict_rpart$sales_pred - predict_rpart$sales,
+     main = "Decision Tree Residuals",
+     xlab = "Observation",
+     ylab = "Prediction Error")
+```
+```{r}
+# To further visualize these results, we will use a line graph to compare both models using sales against predicted sales, firstly we need to combine our two dataframes into one
+combined_models <- data.frame(
+  sales = test$sales,
+  sales_pred_lm = predict_lm$sales_pred,
+  sales_pred_rpart = predict_rpart$sales_pred
+)
+```
+
+```{r}
+# Creating our comparison line graph
+ggplot() +
+  geom_line(data = combined_models, aes(x = sales, y = sales_pred_lm, color = "Linear Regression"), size = 1) +
+  geom_line(data = combined_models, aes(x = sales, y = sales_pred_rpart, color = "Decision Tree"), size = 1) +
+  labs(title = "Comparison of Model's Sales vs Predicted Sales",
+       x = "Sales",
+       y = "Predicted Sales",
+       color = "Model") +
+  theme_minimal() +
+  scale_color_manual(values = c("Linear Regression" = "blue", "Decision Tree" = "red"))
+```
+
+By comparing the results visually above, and with the results of RMSE in step c), we can clearly see that our linear regression model is performing better than our decision tree.
+
+Having an RMSE of 11.32 for our linear regression model suggests that this model was accurate in predicting sales to a +- 11.01 margin of error. In the context of sales ranging from 2.99 - 1700, this is an incredibly accurate model for predicting sales. This can be further shown in the above graph for our lm model, where the variance is minimal with most of our differences in predictions grouping in the 0 range. Comparing these results to our decision tree, this resulted in an RMSE of 24.22, although still bearing a great result, it is over double the margin of error our linear regression model predicts. Looking at the scatter plots, we can see the differences between our two models with our rpart differences having a lot more residuals suggesting the decision tree has a lower accuracy and higher prediction error. This is further shown in the line graph which shows the direct comparison between the two models with both models performing almost virtually the same with the decision tree model having slightly more residuals. 
+
+Although a simpler model, the linear regression model demonstrates higher accuracy and fewer margins of error, suggesting that the predictor variables have a linear relationship with the prediction variable. This supports the case for the decision tree performing worse, as the decision tree model predicts relationships in a more stepwise approach rather than forming linear relations.
+
+Based on these findings, it is recommended that Dibs use the linear regression model when aiming to predict sales, as it is more accurate as shown in our RMSE and visual representations of the differences between actual sales and prediction sales.
